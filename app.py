@@ -1,5 +1,7 @@
 from flask import Flask, jsonify
 import pandas as pd
+import requests
+import sys
 
 # =========================================
 # IMPORT MODELS & UTILS
@@ -19,12 +21,29 @@ from utils.data_cleaning import clean_data
 app = Flask(__name__)
 
 # =========================================
-# LOAD DATASET
+# LOAD DATASET FROM LARAVEL API
 # =========================================
 
-df_raw = pd.read_csv(
-    "data/coffee_shop_transactions.csv"
-)
+try:
+    print("Fetching transaction data from Laravel API...")
+    response = requests.get(
+        "http://localhost:8000/api/internal/transactions",
+        headers={"X-API-KEY": "secret_key_123"}
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        df_raw = pd.DataFrame(data)
+        print(f"Successfully loaded {len(df_raw)} transactions.")
+    else:
+        print(f"Failed to fetch data. Status Code: {response.status_code}")
+        print(f"Response: {response.text}")
+        sys.exit(1)
+        
+except Exception as e:
+    print(f"Error connecting to Laravel API: {e}")
+    sys.exit(1)
+
 
 # =========================================
 # CLEAN DATA

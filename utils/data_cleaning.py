@@ -22,6 +22,9 @@ def clean_data(df):
     # Hapus customer kosong
     df = df.dropna(subset=['customer_id'])
 
+    # Ubah semua customer_id menjadi teks/string agar sama dengan URL Flask
+    df['customer_id'] = df['customer_id'].astype(str)
+
     # Hapus menu kosong
     df = df.dropna(subset=['menu_id', 'menu_name'])
 

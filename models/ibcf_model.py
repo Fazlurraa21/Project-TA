@@ -13,6 +13,16 @@ class IBCFRecommender:
 
         self.user_item_matrix = user_item_matrix
 
+        if user_item_matrix.empty:
+            print("Warning: user_item_matrix is empty! Skipping IBCF calculation.")
+            self.item_similarity = pd.DataFrame()
+            
+            if not menu_info_df.empty:
+                self.menu_info = menu_info_df.drop_duplicates('menu_id').set_index('menu_id')
+            else:
+                self.menu_info = pd.DataFrame()
+            return self
+
         item_matrix = user_item_matrix.T.values
 
         sim = cosine_similarity(item_matrix)
