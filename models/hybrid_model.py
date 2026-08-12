@@ -7,41 +7,36 @@ class HybridRecommender:
         self.pop_model = pop_model
         self.ibcf_model = ibcf_model
 
-    def recommend(self, customer_id, top_n=5):
-        
-        pop_df = self.pop_model.recommend(20)
+    def recommend(self, customer_id, top_n=3):
 
-        ibcf_df = self.ibcf_model.recommend(
-            customer_id,
-            top_n=20
+        # Rekomendasi menggunakan IBCF
+        ibcf_result = self.ibcf_model.recommend(
+            customer_id=customer_id,
+            top_n=top_n
         )
 
-        if ibcf_df is None or ibcf_df.empty:
-            
-            pop_df = pop_df.copy()
-            pop_df['hybrid_score'] = pop_df['popularity_score']
-            return pop_df.head(top_n)
+        # Jika customer belum memiliki histori pembelian,
+        # gunakan Popularity Recommendation
+        if ibcf_result is None or ibcf_result.empty:
 
-       
-        merged = ibcf_df.merge(
-            pop_df[['menu_id', 'popularity_score']],
-            on='menu_id',
-            how='left'
+            pop = self.pop_model.recommend(top_n).copy()
+            pop["predicted_score"] = None
+            pop["source"] = "Popularity"
+
+            return pop
+
+        ibcf_result["source"] = "IBCF"
+
+        # Ambil skor popularity (Weighted Rating)
+        pop_score = self.pop_model.recommend(1000)[
+            ["Nama Produk", "weighted_rating"]
+        ]
+
+        # Gabungkan hasil IBCF dengan Popularity
+        ibcf_result = ibcf_result.merge(
+            pop_score,
+            on="Nama Produk",
+            how="left"
         )
 
-        # Isi NaN popularity_score dengan 0
-        merged['popularity_score'] = merged['popularity_score'].fillna(0)
-
-        # Hitung hybrid score
-        merged['hybrid_score'] = (
-            0.7 * merged['predicted_score'] +
-            0.3 * merged['popularity_score']
-        )
-
-        # Sorting
-        merged = merged.sort_values(
-            'hybrid_score',
-            ascending=False
-        )
-
-        return merged.head(top_n)
+        return ibcf_result

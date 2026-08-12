@@ -1,110 +1,195 @@
+
 import pandas as pd
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 
+
+
+# LANGKAH 1: MEMBANGUN USER-ITEM MATRIX
+# (Sesuai Bagian 4.2 jurnal Mahendra dkk., 2024)Q
+
+
+def build_user_item_matrix(df):
+    temp = df.copy()
+    temp["value"] = 1
+    matrix = df.pivot_table(
+        index="customer_id",
+        columns="Nama Produk",
+        values="Jumlah Produk",
+        aggfunc="sum",
+        fill_value=0
+    )
+    return matrix
+
+
+# LANGKAH 2-4: ITEM-BASED COLLABORATIVE FILTERING
+
 class IBCFRecommender:
 
-    def __init__(self):
-        self.item_similarity  = None
+    def __init__(self, k=10):
+        self.k = k
         self.user_item_matrix = None
-        self.menu_info        = None
+        self.item_similarity = None
+        self.menu_info = None
 
-   
+    def fit(self, df):
+        
+        # Bangun customer_id yang benar (fungsi sudah diperbaiki)
+        
+        # df = build_customer_id(df, name_col="Nama Pelanggan")
+               
+        # Bangun User-Item Matrix
+        self.user_item_matrix = build_user_item_matrix(df)
 
-    def fit(self, user_item_matrix, menu_info_df):
-        self.user_item_matrix = user_item_matrix
-
-        item_matrix = user_item_matrix.T.values
-
-        sim = cosine_similarity(item_matrix)
+        
+        # Cosine Similarity antar item 
+        
+        similarity = cosine_similarity(self.user_item_matrix.T)
+        np.fill_diagonal(similarity, 0)
 
         self.item_similarity = pd.DataFrame(
-            sim,
-            index=user_item_matrix.columns,
-            columns=user_item_matrix.columns
+            similarity,
+            index=self.user_item_matrix.columns,
+            columns=self.user_item_matrix.columns
+        )
+     
+        # Info menu untuk ditampilkan bersama hasil rekomendasi
+      
+        self.menu_info = (
+            df[["Nama Produk", "Kategori"]]
+            .drop_duplicates()
+            .set_index("Nama Produk")
         )
 
-        self.menu_info = (
-            menu_info_df
-            .drop_duplicates('menu_id')
-            .set_index('menu_id')
-        )
+        # simpan juga df yang sudah ada customer_id-nya,
+        # supaya bisa dipakai untuk lookup nama asli -> customer_id
+        self.df_with_id = df
 
         return self
 
-
-
-    def predict_score(self, customer_id, menu_id):
-
-        
+    def predict_score(self, customer_id, product_name, min_items=2):
         if customer_id not in self.user_item_matrix.index:
             return 0.0
-
-        user_ratings = self.user_item_matrix.loc[customer_id]
-
-        
-        bought_items = user_ratings[
-            (user_ratings > 0) & (user_ratings.index != menu_id)
-        ]
-
-        if len(bought_items) == 0:
+        if product_name not in self.item_similarity.index:
             return 0.0
 
+        user_rating = self.user_item_matrix.loc[customer_id]
+        bought_items = user_rating[user_rating > 0]
         
-        if menu_id not in self.item_similarity.index:
+        print("Customer :", customer_id)
+        print("Histori pada matrix:")
+        print(bought_items)
+
+        # Jika pelanggan baru pernah membeli < min_items produk unik,
+        # rumus weighted average akan collapse menjadi rating item
+        # itu sendiri (numerator/denominator selalu 1), sehingga
+        # similarity tidak lagi berarti apa-apa. Prediksi semacam
+        # ini tidak reliable, jadi kita anggap belum ada prediksi.
+        
+        if len(bought_items) < min_items:
             return 0.0
 
-        sims  = self.item_similarity.loc[menu_id, bought_items.index]
-        denom = sims.abs().sum()
-
-        if denom == 0:
+        if product_name in bought_items.index:
             return 0.0
 
-        score = (sims * bought_items[sims.index]).sum() / denom
+        # Kemiripan item target dengan item yang sudah dibeli (2.3.4)
+        similarity = self.item_similarity.loc[product_name, bought_items.index]
+        similarity = (similarity[similarity > 0].sort_values(ascending=False).head(self.k))
+        # Prediksi rating (2.3.5)
+        numerator = (similarity * bought_items[similarity.index]).sum()
+        denominator = similarity.abs().sum()
 
-        return float(score)
+        if denominator == 0:
+            return 0.0
 
+        prediction = numerator / denominator
+        return round(float(prediction), 4)
 
-    def recommend(self, customer_id, top_n=5):
-        all_items = self.item_similarity.columns.tolist()
+    def recommend(self, customer_id, top_n=3, min_items=2):
+        if customer_id not in self.user_item_matrix.index:
+            return pd.DataFrame(columns=["Kategori", "Nama Produk", "predicted_score"])
 
+        user_rating = self.user_item_matrix.loc[customer_id]
+        already_bought = set(user_rating[user_rating > 0].index)
+
+        # Langkah 2.3.3
+        # Mengambil item yang mirip dengan histori user
         
-        if customer_id in self.user_item_matrix.index:
-            user_ratings = self.user_item_matrix.loc[customer_id]
-            already_bought = set(
-                user_ratings[user_ratings > 0].index.tolist()
+        candidate_items = set()
+
+        for bought_item in already_bought:
+
+            similar_items = (
+                self.item_similarity[bought_item]
+                .sort_values(ascending=False)
+                .head(self.k)
+                .index
             )
-        else:
-            already_bought = set()
 
+            candidate_items.update(similar_items)
+
+        # Hilangkan item yang sudah pernah dibeli
+        candidate_items = candidate_items - already_bought
         
+        
+        # Histori terlalu tipis (< min_items produk unik) -> IBCF
+        # tidak reliable untuk pelanggan ini, serahkan ke Popularity
+        # lewat mekanisme fallback di HybridRecommender.
+        if len(already_bought) < min_items:
+            return pd.DataFrame(columns=["Kategori", "Nama Produk", "predicted_score"])
+
         scores = {}
-        for item in all_items:
+        for item in candidate_items:
             if item in already_bought:
-                continue  
-            scores[item] = self.predict_score(customer_id, item)
+                continue
+            score = self.predict_score(customer_id, item, min_items=min_items)
+            if score > 0:
+                scores[item] = score
 
-        
-        if not scores or max(scores.values()) == 0:
-            return pd.DataFrame(
-                columns=['menu_id', 'predicted_score', 'menu_name', 'category']
-            )
+        if not scores:
+            return pd.DataFrame(columns=["Kategori", "Nama Produk", "predicted_score"])
 
-        scores_series = (
-            pd.Series(scores)
-            .sort_values(ascending=False)
+        result = (
+            pd.DataFrame(scores.items(), columns=["Nama Produk", "predicted_score"])
+            .sort_values(by="predicted_score", ascending=False)
             .head(top_n)
         )
 
-        result = pd.DataFrame({
-            'menu_id'        : scores_series.index,
-            'predicted_score': scores_series.values
-        })
-
         result = result.merge(
-            self.menu_info.reset_index(),
-            on='menu_id',
-            how='left'
+            self.menu_info.reset_index(), on="Nama Produk", how="left"
         )
 
-        return result
+        return result[["Kategori", "Nama Produk", "predicted_score"]]
+
+    def get_customer_id_by_name(self, nama_pelanggan):
+        """
+        Helper tambahan: cari customer_id dari nama pelanggan asli
+        (menggunakan normalisasi yang sama seperti saat fit()).
+        """
+        target = normalize_name(nama_pelanggan)
+        if target is None:
+            return None
+
+        matched = self.df_with_id[
+            self.df_with_id["Nama Pelanggan"].apply(normalize_name) == target
+        ]
+
+        if matched.empty:
+            return None
+
+        return matched["customer_id"].iloc[0]
+
+
+    def show_customers(self):
+        """
+        Menampilkan daftar customer_id beserta nama pelanggan.
+        """
+        return (
+            self.df_with_id[
+                ["customer_id", "Nama Pelanggan","Nama Produk"]
+            ]
+            .drop_duplicates()
+            .sort_values("customer_id")
+            .reset_index(drop=True)
+        )

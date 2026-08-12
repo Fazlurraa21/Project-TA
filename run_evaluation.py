@@ -20,22 +20,29 @@ print("=" * 55)
 print("  EVALUASI SISTEM REKOMENDASI MENU KOPI")
 print("=" * 55)
 
-df_raw = pd.read_csv("data/coffee_shop_transactions.csv")
+df_raw = pd.read_csv(
+    "data/Dataset_Transaksi_April_2025.csv",
+    sep=";",
+    encoding="utf-8-sig"
+)
 df     = clean_data(df_raw)
 
 print(f"\n[INFO] Total transaksi : {len(df)}")
-print(f" Total pelanggan : {df['customer_id'].nunique()}")
-print(f" Total menu      : {df['menu_name'].nunique()}")
+print(f" Total pelanggan : {df['Nama Pelanggan'].nunique()}")
+print(f" Total menu      : {df['Nama Produk'].nunique()}")
 
 # ══════════════════════════════════════════════════
 # SPLIT 80/20 PER PELANGGAN
 
 
-df_sorted  = df.sort_values(['customer_id', 'transaction_date'])
+df_sorted = df.sort_values([
+    'customer_id',
+    'Tanggal & Waktu'
+])
 train_rows = []
 test_rows  = []
 
-for cid, grp in df_sorted.groupby('customer_id'):
+for customer_id, grp in df_sorted.groupby('customer_id'):
     n      = len(grp)
     cutoff = max(1, int(n * 0.8))
     train_rows.append(grp.iloc[:cutoff])
@@ -52,8 +59,8 @@ test_df  = pd.concat(test_rows).reset_index(drop=True)
 # ══════════════════════════════════════════════════
 
 MIN_TXN   = 3
-valid_cids = (
-    train_df.groupby('customer_id')['transaction_id']
+valid_customers = (
+    train_df.groupby('customer_id')['ID Struk']
     .nunique()
     .loc[lambda x: x >= MIN_TXN]
     .index.tolist()
@@ -61,30 +68,41 @@ valid_cids = (
 
 # Riwayat belanja per pelanggan di training
 train_history = (
-    train_df.groupby('customer_id')['menu_name']
+    train_df.groupby("customer_id")["Nama Produk"]
     .apply(set)
     .to_dict()
 )
 
 test_data = {}
-for cid, grp in test_df.groupby('customer_id'):
-    if cid not in valid_cids:
+
+for customer_id, grp in test_df.groupby("customer_id"):
+
+    if customer_id not in valid_customers:
         continue
-    bought_in_train = train_history.get(cid, set())
-    new_menus       = [m for m in grp['menu_name'] if m not in bought_in_train]
+
+    bought_in_train = train_history.get(
+        customer_id,
+        set()
+    )
+
+    new_menus = [
+        m for m in grp["Nama Produk"]
+        if m not in bought_in_train
+    ]
+
     if new_menus:
-        test_data[cid] = list(set(new_menus))   # unik saja
+        test_data[customer_id] = list(set(new_menus))
 
 avg_gt = np.mean([len(v) for v in test_data.values()]) if test_data else 0
 print(f"\n Pelanggan dengan menu baru : {len(test_data)}")
 print(f" Rata-rata ground truth     : {avg_gt:.2f} menu/pelanggan")
-print(f" Total pelanggan valid      : {len(valid_cids)}")
+print(f" Total pelanggan valid      : {len(valid_customers)}")
 print(f"[INFO] (Pelanggan tanpa menu baru tidak dimasukkan evaluasi )")
 
 
 # FIT MODEL  (hanya pakai data latih)
 print("\n[INFO] Melatih model ...")
-menu_info    = df[['menu_id', 'menu_name', 'category']].drop_duplicates()
+menu_info    = df[['Nama Produk','Kategori']].drop_duplicates()
 train_matrix = build_user_item_matrix(train_df)
 
 pop_model    = PopularityRecommender()
@@ -105,8 +123,8 @@ def extract_names(result):
         return []
     if hasattr(result, 'empty') and result.empty:
         return []
-    if 'menu_name' in result.columns:
-        return result['menu_name'].dropna().tolist()
+    if 'Nama Produk' in result.columns:
+     return result['Nama Produk'].dropna().tolist()
     return []
 
 
@@ -157,10 +175,16 @@ def recommend_pop(cid, top_n):
     return pop_model.recommend(top_n=top_n)
 
 def recommend_ibcf(cid, top_n):
-    return ibcf_model.recommend(customer_id=cid, top_n=top_n)
+   return ibcf_model.recommend(
+    customer_name=cid,
+    top_n=top_n
+)
 
 def recommend_hybrid(cid, top_n):
-    return hybrid_model.recommend(customer_id=cid, top_n=top_n)
+    return hybrid_model.recommend(
+    customer_name=cid,
+    top_n=top_n
+)
 
 
 # running
@@ -234,3 +258,4 @@ print("                   yang sudah pernah dibeli pelanggan")
 print("  - Metrik       : rata-rata Precision, Recall, F1 atas")
 print(f"                   {len(test_data)} pelanggan dengan menu baru")
 print("=" * 55)
+print("Fazlurr Ganteng ")

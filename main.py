@@ -14,61 +14,131 @@ from models.ibcf_model import IBCFRecommender
 from models.hybrid_model import HybridRecommender
 
 
-df_raw = pd.read_csv('data/coffee_shop_transactions.csv')
+# ==========================================================
+# LOAD DATASET
+# ==========================================================
+df_raw = pd.read_csv(
+    "data/Dataset_Transaksi_April_2025.csv",
+    sep=";",
+    encoding="utf-8-sig"
+)
 
+print("=" * 60)
+print("DATASET")
+print("=" * 60)
 print(f"Shape data mentah : {df_raw.shape}")
 print(f"Kolom             : {list(df_raw.columns)}")
-print(df_raw.head(10))
+print(df_raw.head())
 
 
-df = clean_data(df_raw)
+# ==========================================================
+# DATA CLEANING
+# ==========================================================
+df = clean_data(df)
 
 
+# ==========================================================
+# USER ITEM MATRIX
+# ==========================================================
 user_item_matrix = build_user_item_matrix(df)
 
 
-menu_info = df[[
-    'menu_id',
-    'menu_name',
-    'category'
-]].drop_duplicates()
+# ==========================================================
+# MENU INFORMATION
+# ==========================================================
+menu_info = df[
+    [
+        "Nama Produk",
+        "Kategori"
+    ]
+].drop_duplicates()
 
 
+# ==========================================================
+# POPULARITY MODEL
+# ==========================================================
 pop_model = PopularityRecommender()
 pop_model.fit(df)
 
 
+# ==========================================================
+# IBCF MODEL
+# ==========================================================
 ibcf_model = IBCFRecommender()
-ibcf_model.fit(user_item_matrix, menu_info)
+ibcf_model.fit(
+    user_item_matrix,
+    menu_info
+)
 
 
-hybrid_model = HybridRecommender(pop_model, ibcf_model)
+# ==========================================================
+# HYBRID MODEL
+# ==========================================================
+hybrid_model = HybridRecommender(
+    pop_model,
+    ibcf_model
+)
 
 
-print("=" * 50)
+# ==========================================================
+# CUSTOMER SAMPLE
+# ==========================================================
+
+customer_name = df["Nama Pelanggan"].dropna().iloc[0]
+
+print("=" * 60)
+print("CUSTOMER")
+print("=" * 60)
+print(customer_name)
+
+
+# ==========================================================
+# POPULARITY RECOMMENDATION
+# ==========================================================
+print("=" * 60)
 print("POPULARITY RECOMMENDATION")
-print("=" * 50)
-print(pop_model.recommend())
+print("=" * 60)
 
-print("=" * 50)
+print(
+    pop_model.recommend(
+        top_n=5
+    )
+)
+
+
+# ==========================================================
+# IBCF RECOMMENDATION
+# ==========================================================
+print("=" * 60)
 print("IBCF RECOMMENDATION")
-print("=" * 50)
+print("=" * 60)
+
 print(
     ibcf_model.recommend(
-        customer_id='C001'
+        customer_name=customer_name,
+        top_n=5
     )
 )
 
-print("=" * 50)
+
+# ==========================================================
+# HYBRID RECOMMENDATION
+# ==========================================================
+print("=" * 60)
 print("HYBRID RECOMMENDATION")
-print("=" * 50)
+print("=" * 60)
+
 print(
     hybrid_model.recommend(
-        customer_id='C001'
+        customer_name=customer_name,
+        top_n=5
     )
 )
 
 
+# ==========================================================
+# EDA VISUALIZATION
+# ==========================================================
 top_menu_chart(df)
 category_chart(df)
 monthly_transaction_chart(df)
